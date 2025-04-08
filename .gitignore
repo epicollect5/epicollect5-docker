@@ -1,0 +1,66 @@
+# Docker project .gitignore
+
+# Docker files
+.docker/
+docker-compose.override.yml
+
+# Docker build context
+.dockerignore
+
+# Docker volumes
+volumes/
+data/
+
+# Docker environment files
+.env
+.env.*
+!.env.example
+
+# Docker logs
+*.log
+
+# Build artifacts
+dist/
+build/
+*.tar
+*.gz
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Dependencies
+node_modules/
+vendor/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Documentation
+docs/_build/
+site/
+
+# Local development files
+local_settings.py
+db.sqlite3
+
