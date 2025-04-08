@@ -3,30 +3,16 @@
 # Create file to indicate deployment is in progress
 touch /tmp/deployment_in_progress
 
-# Configure Apache to use the correct DocumentRoot
+# Configure Apache to use the correct configuration file
 if [ -f "/etc/apache2/sites-available/000-default.conf" ]; then
-    # Create or update the Apache configuration
-    cat > /etc/apache2/sites-available/000-default.conf << 'EOL'
-<VirtualHost *:80>
-    ServerAdmin webmaster@localhost
-    DocumentRoot /var/www/html/public
-
-    <Directory /var/www/html/public>
-        Options Indexes FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
-
-    ErrorLog ${APACHE_LOG_DIR}/error.log
-    CustomLog ${APACHE_LOG_DIR}/access.log combined
-</VirtualHost>
-EOL
+    # Copy the prepared configuration file
+    cp /var/www/html/docker/apache/epicollect5.conf /etc/apache2/sites-available/000-default.conf
 
     # Ensure the public directory exists
-    mkdir -p /var/www/html/public
+    mkdir -p /var/www/html_prod/current/public
 
     # Set proper permissions (excluding .git directory)
-    find /var/www/html -not -path "*/\.git*" -exec chown www-data:www-data {} \;
+    find /var/www/html_prod -not -path "*/\.git*" -exec chown www-data:www-data {} \;
 fi
 
 # Start Apache
@@ -36,9 +22,6 @@ service apache2 start
 if [ -f "/setup-ssl.sh" ]; then
     bash /setup-ssl.sh
 fi
-
-# Make deploy.sh executable
-chmod +x /var/www/html/docker/web/deploy.sh
 
 # Check if application is already installed
 if [ -d "/var/www/html_prod/current" ] && [ -f "/var/www/html_prod/current/.env" ]; then
@@ -51,6 +34,12 @@ else
         touch /tmp/deployment_attempted
 
         echo "Running deployment with Deployer..."
+
+        # Clean up any existing deployment directory structure
+        echo "Cleaning up existing deployment directory structure..."
+        if [ -d "/var/www/html_prod" ]; then
+            rm -rf /var/www/html_prod/*
+        fi
 
         # Create deployment directory with correct permissions
         echo "Creating deployment directory with correct permissions..."

@@ -356,109 +356,67 @@ task('setup:env', function () {
 });
 
 task('setup:alerts', function () {
-    while (true) {
-        // Prompt for alert email
-        $email = ask('Enter system email for alerts:');
+    // Get system email from environment variable
+    $email = getenv('SYSTEM_EMAIL') ?: 'alerts@example.com';
 
-        // Validate email format
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            writeln('<error>Invalid email format. Please try again.</error>');
-            continue; // Restart the task if email is invalid
-        }
+    writeln("<info>Using system email from environment variable: $email</info>");
 
-        // Proceed with the task if inputs are valid
-        writeln('<info>Email is valid, saving to .env</info>');
+    // Update the .env file
+    $sharedEnvFile = get('deploy_path') . '/shared/.env';
+    $envContent = file_get_contents($sharedEnvFile);
 
-        // Update the .env file
-        $sharedEnvFile = get('deploy_path') . '/shared/.env';
-        $envContent = file_get_contents($sharedEnvFile);
+    $envContent = preg_replace(
+        '/^SYSTEM_EMAIL=.*/m',
+        "SYSTEM_EMAIL=$email",
+        $envContent
+    );
 
-        $envContent = preg_replace(
-            '/^SYSTEM_EMAIL=.*/m',
-            "SYSTEM_EMAIL=$email",
-            $envContent
-        );
+    file_put_contents($sharedEnvFile, $envContent);
 
-        file_put_contents($sharedEnvFile, $envContent);
-
-        writeln('<info>.env file updated successfully.</info>');
-        break; // Exit the loop once the task is successfully completed
-    }
+    writeln('<info>.env file updated successfully with system email.</info>');
 });
 
 
 task('setup:superadmin', function () {
+    // Get superadmin credentials from environment variables
+    $email = getenv('SUPER_ADMIN_EMAIL') ?: 'admin@example.com';
+    $name = getenv('SUPER_ADMIN_FIRST_NAME') ?: 'Admin';
+    $surname = getenv('SUPER_ADMIN_LAST_NAME') ?: 'User';
+    $password = getenv('SUPER_ADMIN_PASSWORD') ?: 'AdminPassword123!';
 
-    while (true) {
-        // Prompt for superadmin email
-        $email = ask('Enter superadmin email:');
-        // Prompt for superadmin name
-        $name = ask('Enter superadmin name:');
-        // Prompt for superadmin surname
-        $surname = ask('Enter superadmin surname:');
+    writeln("<info>Using superadmin credentials from environment variables</info>");
+    writeln("Email: $email");
+    writeln("Name: $name $surname");
 
-        // Validate email format
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            writeln('<error>Invalid email format. Please try again.</error>');
-            continue; // Restart the task if email is invalid
-        }
+    // Update the .env file
+    $sharedEnvFile = get('deploy_path') . '/shared/.env';
+    $envContent = file_get_contents($sharedEnvFile);
+    $envContent = preg_replace(
+        '/^SUPER_ADMIN_FIRST_NAME=.*/m',
+        "SUPER_ADMIN_FIRST_NAME=$name",
+        $envContent
+    );
+    $envContent = preg_replace(
+        '/^SUPER_ADMIN_LAST_NAME=.*/m',
+        "SUPER_ADMIN_LAST_NAME=$surname",
+        $envContent
+    );
 
-        // Prompt for superadmin password twice
-        $password = askHiddenResponse('Enter superadmin password:');
-        $confirmPassword = askHiddenResponse('Confirm superadmin password:');
+    $envContent = preg_replace(
+        '/^SUPER_ADMIN_EMAIL=.*/m',
+        "SUPER_ADMIN_EMAIL=$email",
+        $envContent
+    );
 
-        // Check if passwords match
-        if ($password !== $confirmPassword) {
-            writeln('<error>Passwords do not match. Please try again.</error>');
-            continue; // Restart the task if passwords don't match
-        }
+    $envContent = preg_replace(
+        '/^SUPER_ADMIN_PASSWORD=.*/m',
+        "SUPER_ADMIN_PASSWORD=$password",
+        $envContent
+    );
 
-        // Show entered details and ask for confirmation
-        writeln("<info>Details entered:</info>");
-        writeln("<info>Email:</info> $email");
-        writeln("<info>Name:</info> $name");
-        writeln("<info>Surname:</info> $surname");
+    file_put_contents($sharedEnvFile, $envContent);
 
-        $confirmation = ask('Do you want to proceed with these details? (yes/no)', true);
-        if (strtolower($confirmation) !== 'yes') {
-            writeln('<error>Operation aborted by user. Please try again.</error>');
-            continue; // Restart the task if user aborts
-        }
-
-        // Proceed with the task if inputs are valid and confirmed
-        writeln('<info>Superadmin credentials are valid, saving to .env</info>');
-
-        // Update the .env file
-        $sharedEnvFile = get('deploy_path') . '/shared/.env';
-        $envContent = file_get_contents($sharedEnvFile);
-        $envContent = preg_replace(
-            '/^SUPER_ADMIN_FIRST_NAME=.*/m',
-            "SUPER_ADMIN_FIRST_NAME=$name",
-            $envContent
-        );
-        $envContent = preg_replace(
-            '/^SUPER_ADMIN_LAST_NAME=.*/m',
-            "SUPER_ADMIN_LAST_NAME=$surname",
-            $envContent
-        );
-
-        $envContent = preg_replace(
-            '/^SUPER_ADMIN_EMAIL=.*/m',
-            "SUPER_ADMIN_EMAIL=$email",
-            $envContent
-        );
-
-        $envContent = preg_replace(
-            '/^SUPER_ADMIN_PASSWORD=.*/m',
-            "SUPER_ADMIN_PASSWORD=$password",
-            $envContent
-        );
-
-        file_put_contents($sharedEnvFile, $envContent);
-
-        writeln('<info>.env file updated successfully.</info>');
-        break; // Exit the loop once the task is successfully completed
-    }
+    writeln('<info>.env file updated successfully with superadmin credentials.</info>');
 });
 
 task('setup:passport:keys', function () {
@@ -523,9 +481,62 @@ task('setup:key:generate', function () {
 });
 
 task('setup:stats', function () {
-    // Run artisan passport:keys to generate the keys
-    run('cd {{deploy_path}}/current && {{bin/php}} artisan system:stats --deployer');
-    writeln('<info>Initial system stats executed.</info>');
+    // Get the database credentials
+    $dbUsername = DB_USERNAME; // This is 'epicollect5_server'
+    $dbName = DB_NAME; // This is 'epicollect5_prod'
+    $dbPassword = get('dbPassword', ''); // This was generated in setup:database
+
+    // In Docker environment, use 'db' as the host
+    $isDockerEnv = run('[ -f /.dockerenv ] || grep -q docker /proc/1/cgroup && echo true || echo false');
+    $dbHost = $isDockerEnv === 'true' ? 'db' : '127.0.0.1';
+
+    writeln("<info>Using database connection: host=$dbHost, name=$dbName, user=$dbUsername</info>");
+
+    // Debug: Show current .env file content (with sensitive info masked)
+    writeln("<comment>DEBUG: Current .env file in current directory:</comment>");
+    run('grep -v PASSWORD {{deploy_path}}/current/.env | grep DB_', ['real_time_output' => true]);
+
+    // Update .env file directly in the current path
+    writeln("<comment>Updating .env file with correct database settings...</comment>");
+    run("sed -i 's/^DB_HOST=.*/DB_HOST=$dbHost/' {{deploy_path}}/current/.env");
+    run("sed -i 's/^DB_DATABASE=.*/DB_DATABASE=$dbName/' {{deploy_path}}/current/.env");
+    run("sed -i 's/^DB_USERNAME=.*/DB_USERNAME=$dbUsername/' {{deploy_path}}/current/.env");
+
+    // Only update password if we have one
+    if (!empty($dbPassword)) {
+        run("sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=$dbPassword/' {{deploy_path}}/current/.env");
+    }
+
+    // Clear config cache
+    writeln("<comment>Clearing config cache...</comment>");
+    run('cd {{deploy_path}}/current && {{bin/php}} artisan config:clear', ['real_time_output' => true]);
+
+    // Show updated .env file
+    writeln("<comment>DEBUG: Updated .env file content:</comment>");
+    run('grep -v PASSWORD {{deploy_path}}/current/.env | grep DB_', ['real_time_output' => true]);
+
+    // Run the stats command with environment variables set directly
+    writeln("<comment>Running system:stats with direct environment variables...</comment>");
+    try {
+        $envVars = "DB_HOST=$dbHost DB_DATABASE=$dbName DB_USERNAME=$dbUsername";
+        if (!empty($dbPassword)) {
+            $envVars .= " DB_PASSWORD=$dbPassword";
+        }
+
+        $output = run("cd {{deploy_path}}/current && $envVars {{bin/php}} artisan system:stats --deployer", [
+            'timeout' => 300,
+            'real_time_output' => true
+        ]);
+        writeln("<info>Initial system stats executed.</info>");
+    } catch (\Throwable $e) {
+        writeln("<error>System stats failed: " . $e->getMessage() . "</error>");
+
+        // If we still have issues, try to get more diagnostic information
+        writeln("<comment>Getting more diagnostic information...</comment>");
+        run("cd {{deploy_path}}/current && {{bin/php}} artisan db:show", ['real_time_output' => true]);
+
+        throw $e;
+    }
 });
 
 // Production server
@@ -536,12 +547,76 @@ localhost('production')
 // Tasks
 desc('Execute artisan migrate');
 task('artisan:migrate', function () {
-    $output =  run('{{bin/php}} {{release_path}}/artisan migrate --force', [
-        'timeout' => 2000, // increasing timeout for long migrations,
-        'real_time_output' => false
-    ]);
-    writeln("<info>$output</info>");
+    // Get the database credentials
+    $dbUsername = DB_USERNAME; // This is 'epicollect5_server'
+    $dbName = DB_NAME; // This is 'epicollect5_prod'
+    $dbPassword = get('dbPassword', ''); // This was generated in setup:database
 
+    // In Docker environment, use 'db' as the host
+    $isDockerEnv = run('[ -f /.dockerenv ] || grep -q docker /proc/1/cgroup && echo true || echo false');
+    $dbHost = $isDockerEnv === 'true' ? 'db' : '127.0.0.1';
+
+    writeln("<info>Using database connection: host=$dbHost, name=$dbName, user=$dbUsername</info>");
+
+    // Debug: Show current .env file content (with sensitive info masked)
+    writeln("<comment>DEBUG: Current .env file content:</comment>");
+    run('grep -v PASSWORD {{release_path}}/.env | grep DB_', ['real_time_output' => true]);
+
+    // Update .env file directly in the release path
+    writeln("<comment>Updating .env file with correct database settings...</comment>");
+    run("sed -i 's/^DB_HOST=.*/DB_HOST=$dbHost/' {{release_path}}/.env");
+    run("sed -i 's/^DB_DATABASE=.*/DB_DATABASE=$dbName/' {{release_path}}/.env");
+    run("sed -i 's/^DB_USERNAME=.*/DB_USERNAME=$dbUsername/' {{release_path}}/.env");
+
+    // Only update password if we have one
+    if (!empty($dbPassword)) {
+        run("sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=$dbPassword/' {{release_path}}/.env");
+    }
+
+    // Clear config cache
+    writeln("<comment>Clearing config cache...</comment>");
+    run('cd {{release_path}} && {{bin/php}} artisan config:clear', ['real_time_output' => true]);
+
+    // Show updated .env file
+    writeln("<comment>DEBUG: Updated .env file content:</comment>");
+    run('grep -v PASSWORD {{release_path}}/.env | grep DB_', ['real_time_output' => true]);
+
+    // Try to connect to MySQL directly to verify credentials
+    writeln("<comment>Testing MySQL connection...</comment>");
+    try {
+        if (!empty($dbPassword)) {
+            run("mysql -h$dbHost -u$dbUsername -p$dbPassword -e 'SHOW DATABASES;' $dbName", ['real_time_output' => true]);
+        } else {
+            run("mysql -h$dbHost -u$dbUsername -e 'SHOW DATABASES;' $dbName", ['real_time_output' => true]);
+        }
+        writeln("<info>MySQL connection successful!</info>");
+    } catch (\Throwable $e) {
+        writeln("<error>MySQL connection test failed: " . $e->getMessage() . "</error>");
+        writeln("<comment>This might be expected if the credentials are only valid within Laravel.</comment>");
+    }
+
+    // Run migration with environment variables set directly
+    writeln("<comment>Running migration with direct environment variables...</comment>");
+    try {
+        $envVars = "DB_HOST=$dbHost DB_DATABASE=$dbName DB_USERNAME=$dbUsername";
+        if (!empty($dbPassword)) {
+            $envVars .= " DB_PASSWORD=$dbPassword";
+        }
+
+        $output = run("cd {{release_path}} && $envVars {{bin/php}} artisan migrate --force", [
+            'timeout' => 2000,
+            'real_time_output' => true
+        ]);
+        writeln("<info>$output</info>");
+    } catch (\Throwable $e) {
+        writeln("<error>Migration failed: " . $e->getMessage() . "</error>");
+
+        // If we still have issues, try to get more diagnostic information
+        writeln("<comment>Getting more diagnostic information...</comment>");
+        run("cd {{release_path}} && {{bin/php}} artisan db:show", ['real_time_output' => true]);
+
+        throw $e;
+    }
 })->once();
 
 desc('Execute artisan migrate:rollback');
@@ -654,3 +729,4 @@ after('deploy', 'reminder:update_release');
 after('deploy:failed', 'deploy:unlock');
 //show message if success
 after('deploy', 'deploy:success');
+after('install', 'deploy:success');
