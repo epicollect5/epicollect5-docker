@@ -6,7 +6,7 @@ touch /tmp/deployment_in_progress
 # Configure Apache to use the correct configuration file
 if [ -f "/etc/apache2/sites-available/000-default.conf" ]; then
     # Copy the prepared configuration file
-    cp /var/www/html/docker/apache/epicollect5.conf /etc/apache2/sites-available/000-default.conf
+    cp /var/www/docker/docker/apache/epicollect5.conf /etc/apache2/sites-available/000-default.conf
 
     # Ensure the public directory exists
     mkdir -p /var/www/html_prod/current/public
@@ -48,12 +48,12 @@ else
 
         # Set proper ownership for the source directory
         echo "Setting proper ownership for source directory..."
-        find /var/www/html -not -path "*/\.git*" -exec chown dev:www-data {} \;
+        find /var/www/docker -not -path "*/\.git*" -exec chown dev:www-data {} \;
 
         # Run the deployment as the dev user using Deployer
         echo "Switching to dev user for deployment..."
-        cd /var/www/html
-        su dev -c "cd /var/www/html && dep install -f docker/web/deploy.php production"
+        cd /var/www/docker
+        su dev -c "cd /var/www/docker && dep install -f docker/web/deploy.php production"
 
         DEPLOY_STATUS=$?
         if [ $DEPLOY_STATUS -ne 0 ]; then

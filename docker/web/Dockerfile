@@ -32,7 +32,8 @@ RUN apt update && apt install -y \
     mysql-client-8.0 \
     --no-install-recommends \
     && apt clean \
-    && update-ca-certificates
+    && update-ca-certificates \
+    && rm -rf /var/www/html  # Remove the default Apache html directory
 
 # Enable Apache modules
 RUN a2enmod rewrite
@@ -47,35 +48,36 @@ RUN useradd -m dev && usermod -aG www-data dev
 # Install sudo
 RUN apt update && apt install -y sudo
 
-# Add dev user to sudoers with NOPASSWD option for specific commands
-RUN echo "dev ALL=(ALL) NOPASSWD: /usr/sbin/service apache2 start, /usr/sbin/service apache2 stop, /usr/sbin/service apache2 restart, /usr/bin/setfacl, /usr/bin/chown, /usr/bin/chmod, /usr/bin/mkdir, /usr/bin/mysql, /usr/bin/mysqldump, /usr/bin/mysql_tzinfo_to_sql" >> /etc/sudoers.d/dev
-RUN chmod 0440 /etc/sudoers.d/dev
-
-# Install Git and clone the repository
-RUN apt update && apt install -y git \
-    && mkdir -p /tmp/epicollect5 \
-    && git clone https://github.com/epicollect5/epicollect5-server.git /tmp/epicollect5 \
-    && cp -R /tmp/epicollect5/. /var/www/html/ \
-    && rm -rf /tmp/epicollect5 \
-    && chown -R www-data:www-data /var/www/html
+# Create sudoers.d directory and add dev user to sudoers with NOPASSWD option
+RUN mkdir -p /etc/sudoers.d && \
+    echo "dev ALL=(ALL) NOPASSWD: /usr/sbin/service apache2 start, /usr/sbin/service apache2 stop, /usr/sbin/service apache2 restart, /usr/bin/setfacl, /usr/bin/chown, /usr/bin/chmod, /usr/bin/mkdir, /usr/bin/mysql, /usr/bin/mysqldump, /usr/bin/mysql_tzinfo_to_sql" > /etc/sudoers.d/dev && \
+    chmod 0440 /etc/sudoers.d/dev
 
 # Set working directory
-WORKDIR /var/www/html
+WORKDIR /var/www/docker
 
-# Set ownership of /var/www/html to www-data group and add ACLs
-RUN chown -R root:www-data /var/www/html && \
-    chmod -R g+rwxs /var/www/html && \
-    setfacl -R -m u:dev:rwx,g:www-data:rwx /var/www/html && \
-    setfacl -dR -m u:dev:rwx,g:www-data:rwx /var/www/html
+# Set ownership of /var/www/docker to www-data group and add ACLs
+RUN mkdir -p /var/www/docker && \
+    chown -R dev:www-data /var/www/docker && \
+    chmod -R g+rwxs /var/www/docker && \
+    setfacl -R -m u:dev:rwx,g:www-data:rwx /var/www/docker && \
+    setfacl -dR -m u:dev:rwx,g:www-data:rwx /var/www/docker
 
-# Install Deployer on the fly
+# Create the html_prod directory with proper ownership
+RUN mkdir -p /var/www/html_prod && \
+    chown dev:dev /var/www/html_prod && \
+    chmod 755 /var/www/html_prod && \
+    setfacl -m u:dev:rwx,g:www-data:rx /var/www/html_prod && \
+    setfacl -d -m u:dev:rwx,g:www-data:rx /var/www/html_prod
+
+# Then download the deploy.php file
 RUN curl -LO https://deployer.org/releases/v7.5.12/deployer.phar \
     && chmod +x deployer.phar \
     && mv deployer.phar /usr/local/bin/dep
 
 # Download deploy.php from the repository
-RUN curl -o /var/www/html/deploy.php "https://raw.githubusercontent.com/epicollect5/epicollect5-server/refs/heads/master/deploy.php" \
-    && chmod +x /var/www/html/deploy.php
+RUN curl -o /var/www/html_prod/deploy.php "https://raw.githubusercontent.com/epicollect5/epicollect5-server/refs/heads/master/deploy.php" \
+    && chmod +x /var/www/html_prod/deploy.php
 
 # Install Composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
