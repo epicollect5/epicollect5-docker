@@ -10,20 +10,8 @@ services:
     volumes:
       - ./:/var/www/docker
     environment:
-      DB_CONNECTION: mysql
-      DB_HOST: db  # Point to the db service
-      DB_PORT: 3306
-      DB_DATABASE: epicollect5
-      DB_USERNAME: epicollect5
-      DB_PASSWORD: ${DB_PASSWORD:-password}
+      # Remove DB connection details so app uses .env file
       TERM: xterm
-      # Superadmin credentials
-      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@example.com}
-      SUPER_ADMIN_FIRST_NAME: ${SUPER_ADMIN_FIRST_NAME:-Admin}
-      SUPER_ADMIN_LAST_NAME: ${SUPER_ADMIN_LAST_NAME:-User}
-      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-AdminPassword123!}
-      # System email for alerts
-      SYSTEM_EMAIL: ${SYSTEM_EMAIL:-alerts@example.com}
     healthcheck:
       test: ["CMD", "test", "!", "-f", "/tmp/deployment_in_progress"]
       interval: 10s
@@ -42,17 +30,11 @@ services:
     image: mysql:8.0
     volumes:
       - mysql_data:/var/lib/mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
-      MYSQL_DATABASE: epicollect5
-      MYSQL_USER: epicollect5
-      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
     ports:
       - "${DB_PORT:-3306}:3306"
     restart: unless-stopped
     networks:
       - epicollect_network
-
 networks:
   epicollect_network:
     driver: bridge
