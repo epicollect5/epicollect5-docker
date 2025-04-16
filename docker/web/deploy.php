@@ -21,10 +21,12 @@ set('ssh_multiplexing', true);
 set('keep_releases', 3);
 set('default_timeout', 7200);
 
+// Ensure .env is properly set in shared_files
 add('shared_files', ['public/.htaccess']);
+
 //we need sudo to be able to set ACL when not the owner of the files
 //for example, on legacy volumes with www-data:www-data
-set('writable_use_sudo', true);
+set('writable_use_sudo', false);
 
 set('writable_dirs', [
     'bootstrap/cache',
@@ -239,8 +241,11 @@ task('setup:database', function () {
         } catch (\Throwable $e) {
             writeln('<comment>Auth socket connection failed: ' . $e->getMessage() . '</comment>');
             writeln('<comment>Trying with password...</comment>');
-            // If that fails, try with environment variable or default password
-            $rootPassword = getenv('MYSQL_ROOT_PASSWORD') ?: 'root_password';
+            // If that fails, try with environment variable
+            // Full path to the source .env file from your Docker repo
+            $sourceEnv = '/var/www/docker/.env';  // Adjust the path as needed
+            // Get the MYSQL_ROOT_PASSWORD value from the source .env file
+            $rootPassword = run("grep -E '^MYSQL_ROOT_PASSWORD=' {$sourceEnv} | cut -d'=' -f2");
             writeln("<comment>Using MYSQL_ROOT_PASSWORD environment variable or default</comment>");
             try {
                 run("cat $sqlFile | mysql -vvv -h$dbHost -uroot -p$rootPassword", ['real_time_output' => true]);
@@ -547,76 +552,12 @@ localhost('production')
 // Tasks
 desc('Execute artisan migrate');
 task('artisan:migrate', function () {
-    // Get the database credentials
-    $dbUsername = DB_USERNAME; // This is 'epicollect5_server'
-    $dbName = DB_NAME; // This is 'epicollect5_prod'
-    $dbPassword = get('dbPassword', ''); // This was generated in setup:database
+    $output = run('{{bin/php}} {{release_path}}/artisan migrate --force', [
+        'timeout' => 2000, // increasing timeout for long migrations,
+        'real_time_output' => false
+    ]);
+    writeln("<info>$output</info>");
 
-    // In Docker environment, use 'db' as the host
-    $isDockerEnv = run('[ -f /.dockerenv ] || grep -q docker /proc/1/cgroup && echo true || echo false');
-    $dbHost = $isDockerEnv === 'true' ? 'db' : '127.0.0.1';
-
-    writeln("<info>Using database connection: host=$dbHost, name=$dbName, user=$dbUsername</info>");
-
-    // Debug: Show current .env file content (with sensitive info masked)
-    writeln("<comment>DEBUG: Current .env file content:</comment>");
-    run('grep -v PASSWORD {{release_path}}/.env | grep DB_', ['real_time_output' => true]);
-
-    // Update .env file directly in the release path
-    writeln("<comment>Updating .env file with correct database settings...</comment>");
-    run("sed -i 's/^DB_HOST=.*/DB_HOST=$dbHost/' {{release_path}}/.env");
-    run("sed -i 's/^DB_DATABASE=.*/DB_DATABASE=$dbName/' {{release_path}}/.env");
-    run("sed -i 's/^DB_USERNAME=.*/DB_USERNAME=$dbUsername/' {{release_path}}/.env");
-
-    // Only update password if we have one
-    if (!empty($dbPassword)) {
-        run("sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=$dbPassword/' {{release_path}}/.env");
-    }
-
-    // Clear config cache
-    writeln("<comment>Clearing config cache...</comment>");
-    run('cd {{release_path}} && {{bin/php}} artisan config:clear', ['real_time_output' => true]);
-
-    // Show updated .env file
-    writeln("<comment>DEBUG: Updated .env file content:</comment>");
-    run('grep -v PASSWORD {{release_path}}/.env | grep DB_', ['real_time_output' => true]);
-
-    // Try to connect to MySQL directly to verify credentials
-    writeln("<comment>Testing MySQL connection...</comment>");
-    try {
-        if (!empty($dbPassword)) {
-            run("mysql -h$dbHost -u$dbUsername -p$dbPassword -e 'SHOW DATABASES;' $dbName", ['real_time_output' => true]);
-        } else {
-            run("mysql -h$dbHost -u$dbUsername -e 'SHOW DATABASES;' $dbName", ['real_time_output' => true]);
-        }
-        writeln("<info>MySQL connection successful!</info>");
-    } catch (\Throwable $e) {
-        writeln("<error>MySQL connection test failed: " . $e->getMessage() . "</error>");
-        writeln("<comment>This might be expected if the credentials are only valid within Laravel.</comment>");
-    }
-
-    // Run migration with environment variables set directly
-    writeln("<comment>Running migration with direct environment variables...</comment>");
-    try {
-        $envVars = "DB_HOST=$dbHost DB_DATABASE=$dbName DB_USERNAME=$dbUsername";
-        if (!empty($dbPassword)) {
-            $envVars .= " DB_PASSWORD=$dbPassword";
-        }
-
-        $output = run("cd {{release_path}} && $envVars {{bin/php}} artisan migrate --force", [
-            'timeout' => 2000,
-            'real_time_output' => true
-        ]);
-        writeln("<info>$output</info>");
-    } catch (\Throwable $e) {
-        writeln("<error>Migration failed: " . $e->getMessage() . "</error>");
-
-        // If we still have issues, try to get more diagnostic information
-        writeln("<comment>Getting more diagnostic information...</comment>");
-        run("cd {{release_path}} && {{bin/php}} artisan db:show", ['real_time_output' => true]);
-
-        throw $e;
-    }
 })->once();
 
 desc('Execute artisan migrate:rollback');
@@ -633,13 +574,6 @@ task('artisan:migrate:status', function () {
     run('{{bin/php}} {{release_path}}/artisan migrate:status');
 })->once();
 
-desc('Execute artisan down with secret');
-task('artisan:down_with_secret', function () {
-    $output =   run('cd {{deploy_path}}/current && {{bin/php}} artisan down --with-secret', [
-        'real_time_output' => true
-    ]);
-    writeln("<info>$output</info>");
-});
 
 task('artisan:about', function () {
     run('cd {{deploy_path}}/current && {{bin/php}} artisan about', [
@@ -653,25 +587,130 @@ task('composer:dump-autoload', function () {
     ]);
 });
 
+task('setup:merge_overrides', function () {
+    $sourceEnv = '/var/www/docker/.env';
+    $sharedEnvPath = '{{deploy_path}}/shared/.env';
+
+    writeln("<comment>→ Merging keys from Docker .env into shared/.env</comment>");
+
+    $keys = [
+        'API_RATE_LIMIT_ENTRIES',
+        'API_RATE_LIMIT_MEDIA',
+        'API_RATE_LIMIT_PROJECT',
+        'APP_ENV',
+        'APP_LOG',
+        'APP_LOG_LEVEL',
+        'APP_LOG_MAX_FILES',
+        'APP_NAME',
+        'APP_URL',
+        'BULK_DELETION_CHUNK_SIZE',
+        'JWT_EXPIRE',
+        'JWT_FORGOT_EXPIRE',
+        'JWT_PASSWORDLESS_EXPIRE',
+        'LOG_CHANNEL',
+        'MAIL_ENCRYPTION',
+        'MAIL_FROM_ADDRESS',
+        'MAIL_FROM_NAME',
+        'MAIL_HOST',
+        'MAIL_MAILER',
+        'MAIL_PASSWORD',
+        'MAIL_PORT',
+        'MAIL_USERNAME',
+        'MAILGUN_DOMAIN',
+        'MAILGUN_ENDPOINT',
+        'MAILGUN_SECRET',
+        'MAILGUN_ZONE',
+        'OPENCAGE_ENDPOINT',
+        'OPENCAGE_KEY',
+        'PASSWORDLESS_TOKEN_EXPIRES_IN',
+        'PHPINFO_ENABLED',
+        'RESPONSE_DELAY_MEDIA_REQUEST',
+        'RESPONSE_DELAY_UPLOAD_REQUEST',
+        'SESSION_EXPIRE',
+        'SESSION_SAME_SITE',
+        'SESSION_SECURE_COOKIE',
+        'STORAGE_AVAILABLE_MIN_THRESHOLD',
+        'SUPER_ADMIN_EMAIL',
+        'SUPER_ADMIN_FIRST_NAME',
+        'SUPER_ADMIN_LAST_NAME',
+        'SUPER_ADMIN_PASSWORD',
+        'SYSTEM_EMAIL',
+    ];
+
+    foreach ($keys as $key) {
+        $value = run("grep -E '^{$key}=' {$sourceEnv} | tail -n1 || true");
+
+        if (!empty($value)) {
+            $escapedValue = str_replace(['/', '&'], ['\/', '\&'], $value);
+
+            // Update or append the value
+            run("grep -q '^{$key}=' {$sharedEnvPath} && sed -i 's/^{$key}=.*/{$escapedValue}/' {$sharedEnvPath} || echo '{$value}' >> {$sharedEnvPath}");
+
+            // Log the applied value
+            writeln("  - <info>{$value}</info>");
+        } else {
+            writeln("  - <fg=yellow>{$key} not found in Docker .env, skipping</>");
+        }
+    }
+
+    // Fetch latest tag
+    writeln("<comment>→ Fetching latest tag from master branch of repo</comment>");
+    $repo = get('repository');
+    $tmpDir = '/tmp/latest-tag-check';
+
+    run("rm -rf {$tmpDir} && git clone --quiet --depth=1 --branch=master {$repo} {$tmpDir}");
+    $latestTag = run("cd {$tmpDir} && git fetch --tags && git describe --tags \$(git rev-list --tags --max-count=1)");
+    run("rm -rf {$tmpDir}");
+
+    $version = trim($latestTag);
+    $release = str_replace('.', '', $version);
+
+    //Authentication only via email
+    run("grep -E '^#?AUTH_METHODS=' {$sharedEnvPath} && sed -i 's/^#\\?AUTH_METHODS=.*/AUTH_METHODS=passwordless/' {$sharedEnvPath} || echo 'AUTH_METHODS=passwordless' >> {$sharedEnvPath}");
+
+    //DB Host
+    run("grep -E '^#?DB_HOST=' {$sharedEnvPath} && sed -i 's/^#\\?DB_HOST=.*/DB_HOST=db/' {$sharedEnvPath} || echo 'DB_HOST=db' >> {$sharedEnvPath}");
+
+    // Apply release values
+    run("grep -q '^RELEASE=' {$sharedEnvPath} && sed -i 's/^RELEASE=.*/RELEASE={$release}/' {$sharedEnvPath} || echo 'RELEASE={$release}' >> {$sharedEnvPath}");
+    run("grep -q '^PRODUCTION_SERVER_VERSION=' {$sharedEnvPath} && sed -i 's/^PRODUCTION_SERVER_VERSION=.*/PRODUCTION_SERVER_VERSION={$version}/' {$sharedEnvPath} || echo 'PRODUCTION_SERVER_VERSION={$version}' >> {$sharedEnvPath}");
+
+    writeln("  - <info>RELEASE={$release}</info>");
+    writeln("  - <info>PRODUCTION_SERVER_VERSION={$version}</info>");
+
+    writeln("<info>shared/.env updated successfully</info>");
+});
+
+task('artisan:down', function () {
+    $currentPath = run('readlink /var/www/html_prod/current');
+    writeln("Current symlink points to: {$currentPath}");
+    run("cd {$currentPath} && php artisan down");
+});
+
+// This will unlock the deployment (remove .deploy.lock file)
+task('deploy:unlock', function () {
+    if (test('[ -f {{deploy_path}}/.deploy.lock ]')) {
+        run('rm -f {{deploy_path}}/.deploy.lock');
+    }
+});
+
 desc('Update Epicollect5 to a new release');
 task('update', [
     'check:not_root',
-    'artisan:down_with_secret',
+    'artisan:down',
     'deploy:prepare',
     'deploy:vendors',
-    'artisan:migrate',
-    'artisan:config:cache',
-    'artisan:route:cache',
-    'artisan:view:cache',
     'deploy:publish',
     'setup:symlink_deploy_file',
     'setup:symlink_laravel_storage_folders_file',
     'setup:update_permissions:bash_scripts',
     'setup:update_permissions:api_keys',
     'setup:update_permissions:.env',
-    'composer:dump-autoload',
-    'artisan:about'
-    // 'artisan:up', // go back online manually after checking all works
+    'setup:merge_overrides',
+    'setup:after_pull',
+    'artisan:migrate',
+    'artisan:up',
+    'install:success'
 ]);
 
 // Task to check if running as root
@@ -683,50 +722,57 @@ task('check:not_root', function () {
     }
 });
 
+task('setup:after_pull', function () {
+    $scriptPath = '{{deploy_path}}/current/after_pull-prod.sh';
+
+    // Ensure the script is executable
+    run("chmod +x {$scriptPath}");
+
+    // Run the script and capture the output
+    $output = run("cd {{deploy_path}}/current && ./after_pull-prod.sh");
+
+    // Display the output in the deploy logs
+    writeln("<info>Output of after_pull-prod.sh:</info>\n" . $output);
+});
+
+task('setup:ensure_env_symlink', function () {
+    $command = 'ln -nfs {{deploy_path}}/shared/.env {{deploy_path}}/current/.env';
+    run("echo 'Running command: $command'");
+    run($command);
+});
+
 desc('Install Epicollect5 release from scratch');
-try {
-    task('install', [
-        'check:not_root',
-        'setup:check_clean_install',
-        'deploy:prepare',
-        'deploy:vendors',
-        'deploy:publish',
-        'setup:database',
-        'setup:env',
-        'setup:key:generate',
-        'setup:storage:link',
-        'setup:passport:keys',
-        'setup:superadmin',
-        'setup:alerts',
-        'artisan:view:clear',
-        'artisan:config:cache',
-        'artisan:migrate',
-        'setup:symlink_deploy_file',
-        'setup:symlink_laravel_storage_folders_file',
-        'setup:update_permissions:bash_scripts',
-        'setup:update_permissions:api_keys',
-        'setup:update_permissions:.env',
-        'setup:stats'
-    ]);
-
-} catch (Throwable $e) {
-    writeln(__METHOD__ . ' failed '. $e->getMessage());
-}
-
-// Custom task to display a reminder message
-try {
-    task('reminder:update_release', function () {
-        writeln('<info>App is currently in maintenance mode.</info>');
-        writeln('<info>Remember to update the release in .env before running artisan up!</info>');
-    });
-} catch (Throwable $e) {
-    error(__METHOD__ . ' failed '. $e->getMessage());
-}
-
-// Hook the custom task to run after the deployment
-after('deploy', 'reminder:update_release');
+task('install:success', function () {
+    writeln("<info>🎉 Epicollect5 installation completed successfully!</info>");
+});
+task('install', [
+    'check:not_root',
+    'setup:check_clean_install',
+    'deploy:prepare',
+    'deploy:vendors',
+    'deploy:publish',
+    'setup:database',
+    'setup:env',
+    'setup:key:generate',
+    'setup:storage:link',
+    'setup:passport:keys',
+    'setup:superadmin',
+    'setup:alerts',
+    'setup:symlink_deploy_file',
+    'setup:symlink_laravel_storage_folders_file',
+    'setup:update_permissions:bash_scripts',
+    'setup:update_permissions:api_keys',
+    'setup:update_permissions:.env',
+    'setup:merge_overrides',
+    'setup:after_pull',
+    'artisan:migrate',
+    'setup:stats',
+    'artisan:up',
+    'install:success'
+]);
 // If deploy fails automatically unlock.
 after('deploy:failed', 'deploy:unlock');
-//show message if success
-after('deploy', 'deploy:success');
-after('install', 'deploy:success');
+
+
+
+

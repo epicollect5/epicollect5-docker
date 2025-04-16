@@ -9,6 +9,7 @@ services:
       - "${WEB_PORT:-80}:80"  # Uses WEB_PORT env var or defaults to 80
     volumes:
       - ./:/var/www/docker
+      - html_prod:/var/www/html_prod
     environment:
       # Remove DB connection details so app uses .env file
       TERM: xterm
@@ -28,6 +29,8 @@ services:
   db:
     container_name: epicollect5-database
     image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
@@ -44,3 +47,6 @@ volumes:
     driver: local
   letsencrypt:  # Volume for Let's Encrypt certificates
     driver: local
+  html_prod:
+      driver: local
+

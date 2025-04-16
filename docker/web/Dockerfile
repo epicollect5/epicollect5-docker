@@ -30,6 +30,7 @@ RUN apt update && apt install -y \
     python3-certbot-apache \
     acl \
     mysql-client-8.0 \
+    nano \
     --no-install-recommends \
     && apt clean \
     && update-ca-certificates \
@@ -50,7 +51,7 @@ RUN apt update && apt install -y sudo
 
 # Create sudoers.d directory and add dev user to sudoers with NOPASSWD option
 RUN mkdir -p /etc/sudoers.d && \
-    echo "dev ALL=(ALL) NOPASSWD: /usr/sbin/service apache2 start, /usr/sbin/service apache2 stop, /usr/sbin/service apache2 restart, /usr/bin/setfacl, /usr/bin/chown, /usr/bin/chmod, /usr/bin/mkdir, /usr/bin/mysql, /usr/bin/mysqldump, /usr/bin/mysql_tzinfo_to_sql" > /etc/sudoers.d/dev && \
+    echo "dev ALL=(ALL) NOPASSWD: /usr/sbin/service apache2 start, /usr/sbin/service apache2 stop, /usr/sbin/service apache2 restart, /usr/bin/setfacl, /usr/bin/chown, /usr/bin/chmod, /usr/bin/mkdir, /usr/bin/ln, /usr/bin/mysql, /usr/bin/mysqldump, /usr/bin/mysql_tzinfo_to_sql" > /etc/sudoers.d/dev && \
     chmod 0440 /etc/sudoers.d/dev
 
 # Set working directory
@@ -65,8 +66,8 @@ RUN mkdir -p /var/www/docker && \
 
 # Create the html_prod directory with proper ownership
 RUN mkdir -p /var/www/html_prod && \
-    chown dev:dev /var/www/html_prod && \
-    chmod 755 /var/www/html_prod && \
+    chown dev:www-data /var/www/html_prod && \
+    chmod 775 /var/www/html_prod && \
     setfacl -m u:dev:rwx,g:www-data:rx /var/www/html_prod && \
     setfacl -d -m u:dev:rwx,g:www-data:rx /var/www/html_prod
 

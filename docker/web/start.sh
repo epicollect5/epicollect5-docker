@@ -1,18 +1,37 @@
 #!/bin/bash
 
-# Create file to indicate deployment is in progress
-touch /tmp/deployment_in_progress
+if [ ! -f "/var/www/html_prod/shared/.installed" ]; then
+    touch /var/www/html_prod/shared/.installed
+fi
+
+# Define the remote repository URL
+REPO_URL="https://github.com/epicollect5/epicollect5-server.git"
+
+# Fetch the latest tag from the master branch
+LATEST_TAG=$(git ls-remote --tags "$REPO_URL" | grep "refs/tags/" | awk '{print $2}' | sed 's/refs\/tags\///' | sort -V | tail -n 1)
+echo "Latest tag from master branch: $LATEST_TAG"
+
+# Get the current version from the .env file (PRODUCTION_SERVER_VERSION)
+CURRENT_VERSION=$(grep 'PRODUCTION_SERVER_VERSION' /var/www/html_prod/shared/.env | cut -d '=' -f2 | xargs)
+echo "Current version from .env: $CURRENT_VERSION"
+
+# Compare the current version and the latest tag
+if [ "$CURRENT_VERSION" == "$LATEST_TAG" ]; then
+    echo "Versions match, skipping update..."
+    # Start Apache if needed
+    service apache2 start
+    exit 0
+else
+    echo "Versions do not match, update required."
+    # Proceed with the update process
+    # (Add any further actions here)
+fi
+
 
 # Configure Apache to use the correct configuration file
 if [ -f "/etc/apache2/sites-available/000-default.conf" ]; then
     # Copy the prepared configuration file
     cp /var/www/docker/docker/apache/epicollect5.conf /etc/apache2/sites-available/000-default.conf
-
-    # Ensure the public directory exists
-    mkdir -p /var/www/html_prod/current/public
-
-    # Set proper permissions (excluding .git directory)
-    find /var/www/html_prod -not -path "*/\.git*" -exec chown www-data:www-data {} \;
 fi
 
 # Start Apache
@@ -24,10 +43,9 @@ if [ -f "/setup-ssl.sh" ]; then
 fi
 
 # Check if application is already installed
-if [ -d "/var/www/html_prod/current" ] && [ -f "/var/www/html_prod/current/.env" ]; then
-    echo "Application is already installed. Skipping deployment."
-    # Remove the health check file since we're not deploying
-    rm -f /tmp/deployment_in_progress
+if [ -f "/var/www/html_prod/shared/.env" ]; then
+    echo "Application already installed. Running update..."
+    su dev -c "cd /var/www/docker && dep update -f docker/web/deploy.php production -vvv"
 else
     # Only attempt deployment once to prevent infinite loops
     if [ ! -f "/tmp/deployment_attempted" ]; then
@@ -35,16 +53,11 @@ else
 
         echo "Running deployment with Deployer..."
 
-        # Clean up any existing deployment directory structure
-        echo "Cleaning up existing deployment directory structure..."
-        if [ -d "/var/www/html_prod" ]; then
-            rm -rf /var/www/html_prod/*
-        fi
-
-        # Create deployment directory with correct permissions
+        # Ensure deployment dir exists and is writable by dev
         echo "Creating deployment directory with correct permissions..."
-        mkdir -p /var/www/html_prod
+        mkdir -p /var/www/html_prod/shared
         chown -R dev:www-data /var/www/html_prod
+        chmod -R 775 /var/www/html_prod
 
         # Set proper ownership for the source directory
         echo "Setting proper ownership for source directory..."
@@ -53,22 +66,13 @@ else
         # Run the deployment as the dev user using Deployer
         echo "Switching to dev user for deployment..."
         cd /var/www/docker
-        su dev -c "cd /var/www/docker && dep install -f docker/web/deploy.php production"
-
-        DEPLOY_STATUS=$?
-        if [ $DEPLOY_STATUS -ne 0 ]; then
-            echo "Deployment failed with exit code $DEPLOY_STATUS"
-            rm -f /tmp/deployment_in_progress
-            echo "Container will continue running despite deployment failure."
-            # Don't exit here - let the container keep running
-        fi
+        su dev -c "cd /var/www/docker && dep install -f docker/web/deploy.php production -vvv"
     else
         echo "Deployment was already attempted once. Skipping to prevent infinite loops."
     fi
 fi
 
-# Remove the deployment in progress file
-rm -f /tmp/deployment_in_progress
+
 
 # Keep container running
 tail -f /dev/null

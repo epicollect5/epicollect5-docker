@@ -63,4 +63,3 @@ site/
 # Local development files
 local_settings.py
 db.sqlite3
-
