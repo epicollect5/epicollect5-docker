@@ -11,7 +11,7 @@ services:
       - ./:/var/www/docker
       - html_prod:/var/www/html_prod
     environment:
-      # Remove DB connection details so app uses .env file
+      UPDATE_CODEBASE: "${UPDATE_CODEBASE}"
       TERM: xterm
     healthcheck:
       test: ["CMD", "test", "!", "-f", "/tmp/deployment_in_progress"]

@@ -1,8 +1,11 @@
 #!/bin/bash
+# Import logging functions
+source ./log.sh
 
-if [ ! -f "/var/www/html_prod/shared/.installed" ]; then
-    touch /var/www/html_prod/shared/.installed
-fi
+echo "===== DEBUG INFO ====="
+echo "UPDATE_CODEBASE: '$UPDATE_CODEBASE'"
+echo "env file exists: $(ls -l /var/www/html_prod/shared/.env 2>/dev/null || echo 'No')"
+echo "======================"
 
 # Configure Apache to use the correct configuration file
 if [ -f "/etc/apache2/sites-available/000-default.conf" ]; then
@@ -17,7 +20,7 @@ REPO_URL="https://github.com/epicollect5/epicollect5-server.git"
 LATEST_TAG=$(git ls-remote --tags "$REPO_URL" | grep "refs/tags/" | awk '{print $2}' | sed 's/refs\/tags\///' | sort -V | tail -n 1)
 
 # Clean the tag by removing any trailing `^{}` suffix
-LATEST_TAG=$(echo "$LATEST_TAG" | sed 's/\^{}//')
+LATEST_TAG=${LATEST_TAG//\^\{\}/}
 
 echo "Latest tag from master branch: $LATEST_TAG"
 
@@ -34,8 +37,10 @@ if [ "$CURRENT_VERSION" == "$LATEST_TAG" ]; then
     echo "Latest tag from master branch: $LATEST_TAG"
     echo "Current version from .env: $CURRENT_VERSION"
     echo "Versions match, skipping update..."
+    log_success "🎉 Epicollect5 is up to date!"
 else
-    echo "Versions do not match, update required."
+    log_warning "⚠️ Versions do not match, update required."
+
    # Setup SSL if in production mode
    if [ -f "/setup-ssl.sh" ]; then
        bash /setup-ssl.sh
@@ -43,8 +48,14 @@ else
 
    # Check if application is already installed
    if [ -f "/var/www/html_prod/shared/.env" ]; then
-       echo "Application already installed. Running update..."
-       su dev -c "cd /var/www/docker && dep update -f docker/web/deploy.php production -vvv"
+
+       #Update or skip based on env
+       if [ "$UPDATE_CODEBASE" == "false" ]; then
+           log_warning "⚠️Skipping update as UPDATE_CODEBASE is set to false."
+       else
+           echo "⚙️Application already installed. Running update..."
+           su dev -c "cd /var/www/docker && dep update -f docker/web/deploy.php production -vvv"
+       fi
    else
        # Only attempt deployment once to prevent infinite loops
        if [ ! -f "/tmp/deployment_attempted" ]; then
@@ -64,7 +75,7 @@ else
 
            # Run the deployment as the dev user using Deployer
            echo "Switching to dev user for deployment..."
-           cd /var/www/docker
+           cd /var/www/docker || exit 1
            su dev -c "cd /var/www/docker && dep install -f docker/web/deploy.php production -vvv"
        else
            echo "Deployment was already attempted once. Skipping to prevent infinite loops."
