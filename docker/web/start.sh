@@ -7,6 +7,14 @@ echo "UPDATE_CODEBASE: '$UPDATE_CODEBASE'"
 echo "env file exists: $(ls -l /var/www/html_prod/shared/.env 2>/dev/null || echo 'No')"
 echo "======================"
 
+# Check if local .env file exists in the Docker environment
+if [ ! -f "/var/www/docker/.env" ]; then
+    log_error "❌ ERROR: Local .env file not found in Docker environment!"
+    log_error "Please create a .env file by copying .env.example to .env in your project root."
+    log_error "This file contains essential configuration for the Docker environment."
+    exit 1
+fi
+
 # Configure Apache to use the correct configuration file
 if [ -f "/etc/apache2/sites-available/000-default.conf" ]; then
     # Copy the prepared configuration file
